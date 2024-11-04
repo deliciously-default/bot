@@ -88,6 +88,8 @@ export interface BotOptions {
 
 	/** Options for the chat emitter. If this isn't set, the bot will use {@link eventEmitterOptions}. */
 	chatEmitterOptions?: BotChatEmitterOptions;
+
+	credentialManager?: CredentialManager;
 }
 
 /**
@@ -132,11 +134,13 @@ export class Bot extends EventEmitter {
 			cacheOptions,
 			eventEmitterOptions = { strategy: EventStrategy.Polling },
 			chatEmitterOptions,
+			credentialManager = undefined,
 		}: BotOptions = {},
 	) {
 		super();
 
-		this.handler = new CredentialManager({ service });
+		this.handler = credentialManager ?? new CredentialManager({ service });
+
 		this.agent = new RateLimitedAgent(
 			{ handler: this.handler },
 			new RateLimitThreshold(3000, rateLimitOptions?.rateLimitInterval ?? 300),
@@ -216,8 +220,22 @@ export class Bot extends EventEmitter {
 		const response = await this.handler.resume(session).catch((e) => {
 			throw new Error("Failed to resume session.", { cause: e });
 		});
+
+		this.chatProxy = this.agent.withProxy("bsky_chat", "did:web:api.bsky.chat");
+
 		this.profile = await this.getProfile(response.did);
+
 		return response;
+	}
+
+	async useExistingSession(): Promise<void> {
+		if (!this.hasSession) {
+			throw new Error("There was no active session to use.");
+		}
+
+		this.chatProxy = this.agent.withProxy("bsky_chat", "did:web:api.bsky.chat");
+
+		this.profile = await this.getProfile(this.handler.session!.did);
 	}
 
 	/**
